@@ -5,7 +5,7 @@ Welcome to the ChainPledge frontend, a decentralized application built on the Ap
 ---
 
 ## 🔗 Links
-- **Live Demo:** [ChainPledge dApp](http://localhost:3000)
+- **Live Demo:** [ChainPledge dApp](https://chain-pledge.vercel.app/)
 - **Smart Contract Explorer:** [Aptos Explorer](https://explorer.aptoslabs.com/account/0xe5ef0bea5d9b07a1e45a83f76545a8d68e52ee5fcf0f02aa91c23aea9a85c5ef?network=devnet)
 
 ---
