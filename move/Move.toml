@@ -1,0 +1,13 @@
+[package]
+name = "chain_pledge"
+version = "1.0.0"
+authors = ["ChainPledge Team"]
+
+[addresses]
+chain_pledge = "0xe5ef0bea5d9b07a1e45a83f76545a8d68e52ee5fcf0f02aa91c23aea9a85c5ef"
+
+[dependencies]
+AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework", rev = "main" }
+
+[dev-addresses]
+chain_pledge = "0xcafe" 
