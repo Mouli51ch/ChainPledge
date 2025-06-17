@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Calendar, Coins, Lightbulb, Wallet, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,10 @@ const motivationalSuggestions = [
   "💻 Learn a new skill for 1 hour daily",
 ]
 
+function toHexString(byteArray: Uint8Array) {
+  return '0x' + Array.from(byteArray, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 const aptos = new Aptos({ network: Network.DEVNET });
 
 export default function CreatePledge() {
@@ -37,31 +41,83 @@ export default function CreatePledge() {
   const [isSuccess, setIsSuccess] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
-  const { account, signAndSubmitTransaction } = useWallet();
+  const { account, signAndSubmitTransaction, connected } = useWallet();
+
+  // Debug logging for wallet state changes
+  useEffect(() => {
+    console.log('CreatePledge - WALLET STATE CHANGE DETECTED:', { connected, account, hasAccount: !!account });
+    if (connected && account) {
+      console.log('Wallet successfully connected with account:', account.address?.toString());
+    } else if (!connected && account) {
+      console.warn('Wallet is not marked as connected, but account exists.', account.address?.toString());
+    } else if (connected && !account) {
+      console.warn('Wallet is marked as connected, but account is null.');
+    }
+  }, [connected, account]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
-    if (!account) {
+    console.log('=== PLEDGE CREATION DEBUG ===');
+    console.log('Submit attempt - Wallet state:', { 
+      connected, 
+      account, 
+      hasAccount: !!account, 
+      signAndSubmitTransactionType: typeof signAndSubmitTransaction,
+      accountAddress: account?.address?.toString()
+    });
+
+    if (!connected || !account || typeof signAndSubmitTransaction !== 'function') {
+      console.error('Wallet not ready:', { connected, hasAccount: !!account, hasSignFunction: typeof signAndSubmitTransaction === 'function' });
       toast({ title: "Please connect your wallet first." });
       setIsSubmitting(false);
       return;
     }
 
+    // Convert address to hex string if needed
+    let userAddress = '';
+    if (account.address && account.address.data) {
+      userAddress = toHexString(account.address.data);
+    } else if (typeof account.address === 'string') {
+      userAddress = account.address;
+    }
+
+    console.log('User address:', userAddress);
+    console.log('Form data:', formData);
+
+    const payload = {
+      type: "entry_function_payload",
+      function: "0xe5ef0bea5d9b07a1e45a83f76545a8d68e52ee5fcf0f02aa91c23aea9a85c5ef::pledge::create_pledge",
+      arguments: [
+        formData.description,
+        Number(formData.stakeAmount) * 1e8, // APT to Octas
+        Math.floor(new Date(formData.deadline).getTime() / 1000),
+      ],
+      type_arguments: [],
+    };
+
+    console.log('Transaction payload:', payload);
+    console.log('Stake amount in octas:', Number(formData.stakeAmount) * 1e8);
+    console.log('Deadline timestamp:', Math.floor(new Date(formData.deadline).getTime() / 1000));
+
+    if (!payload || typeof payload !== 'object' || !('function' in payload)) {
+      console.error('Invalid payload structure:', payload);
+      toast({ title: "Invalid transaction payload." });
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
-      const payload = {
-        type: "entry_function_payload",
-        function: "0xe5ef0bea5d9b07a1e45a83f76545a8d68e52ee5fcf0f02aa91c23aea9a85c5ef::pledge::create_pledge",
-        arguments: [
-          formData.description,
-          Number(formData.stakeAmount) * 1e8, // APT to Octas
-          Math.floor(new Date(formData.deadline).getTime() / 1000),
-        ],
-        type_arguments: [],
-      };
+      console.log('Submitting transaction...');
       const tx = await signAndSubmitTransaction(payload);
+      console.log('Transaction submitted successfully:', tx);
+      console.log('Transaction hash:', tx.hash);
+      
+      console.log('Waiting for transaction confirmation...');
       await aptos.waitForTransaction({ transactionHash: tx.hash });
+      console.log('Transaction confirmed on blockchain');
+      
       setIsSubmitting(false);
       setIsSuccess(true);
       toast({
@@ -72,8 +128,18 @@ export default function CreatePledge() {
         router.push("/pledges");
       }, 2000);
     } catch (e: any) {
+      console.error('Transaction failed:', e);
+      console.error('Error details:', {
+        message: e.message,
+        name: e.name,
+        stack: e.stack,
+        code: e.code
+      });
       setIsSubmitting(false);
-      toast({ title: "Transaction failed", description: e.message });
+      toast({ 
+        title: "Transaction failed", 
+        description: e.message || "Unknown error occurred" 
+      });
     }
   }
 
@@ -114,6 +180,16 @@ export default function CreatePledge() {
             <p className="text-xl text-gray-300 max-w-2xl mx-auto">
               Make a commitment that matters. Stake your APT tokens and turn your goals into reality.
             </p>
+          </div>
+
+          {/* Wallet Status Display */}
+          <div className="mb-6 text-center">
+            <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+              connected ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'
+            }`}>
+              <Wallet className="w-4 h-4 mr-2" />
+              {connected ? `Connected: ${account?.address?.toString().slice(0, 6)}...${account?.address?.toString().slice(-4)}` : 'Wallet Not Connected'}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -168,14 +244,16 @@ export default function CreatePledge() {
                   <div className="flex flex-col sm:flex-row gap-4">
                     <Button
                       type="submit"
-                      disabled={isSubmitting}
-                      className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 flex-1 animate-glow"
+                      disabled={isSubmitting || !connected}
+                      className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 flex-1 animate-glow disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isSubmitting ? (
                         <>
                           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                           Creating Pledge...
                         </>
+                      ) : !connected ? (
+                        "Connect Wallet to Create Pledge"
                       ) : (
                         "Create Pledge"
                       )}
